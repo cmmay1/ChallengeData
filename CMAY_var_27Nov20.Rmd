@@ -1,0 +1,910 @@
+---
+title: "Variant Calling Analysis"
+output:
+  html_document: 
+    fig_width: 8
+    fig_height: 6
+    toc: yes
+    toc_depth: 6
+    toc_width: 200
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+      fontsize: 12pt
+    highlight: kate
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: '6'
+---
+
+Version 1.0 (27Nov20).
+Authored by Catherine M. May.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+## For first time use, uncomment the lines below and run once. 
+## Bioconductor Manager will install the necessary packages to run this analysis.
+
+## Install BioConductor packages
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+# BiocManager::install(version = "3.12")
+# BiocManager::install(c("VariantAnnotation","devtools","tidyverse","vcfR","ape","importGTF","bedr","seqinr"))
+
+## Download other packages from specific sources not available in the current R repository
+# install.packages("ngstk","RMySQL")
+# install.packages("BiocInstaller", repos="http://bioconductor.org/packages/2.13/bioc")
+# install.packages('devtools','tidyverse','utils','ggplot2','ggpubr','annovarR','vcfanno','anor')
+# install.packages("~/Desktop/BSgenome.Hsapiens.UCSC.hg38_1.4.3.tar.gz", repos = NULL, type = "source")
+# install.packages("~/Desktop/TxDb.Hsapiens.UCSC.hg19.knownGene_3.2.2.tar", repos = NULL, type = "source")
+# install.packages("~/Desktop/ngstk_0.2.3.tar.gz", repos = NULL, type = "source")
+# install.packages("~/Desktop/anor-1.0.0.tar.gz", repos = NULL, type = "source")
+# install.packages("RSQLite")
+# devtools::install_github("JhuangLab/annovarR")
+# devtools::install_github("clindet/anor")
+# BiocInstaller::biocLite('CicciaLab/iSTOP')
+
+## Load libraries every time
+library(BiocManager)
+library(devtools)
+library(VariantAnnotation)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+library(GenomicFeatures)
+library(tidyverse)
+library(vcfR)
+library(ape)
+library(utils)
+library(data.table)
+library(seqinr)
+library(BSgenome)
+library(ggplot2)
+library(gplots)
+library(ggpubr)
+library(bedr)
+library(scales)
+library(annovarR)
+library(anor)
+library(dplyr)
+#library(vcfanno)
+#library(ngstk)
+
+## Remove all environmental variables to prevent errors. 
+rm(list=ls())
+
+## Set your memory limit
+memory.limit(31000000)
+
+## Set your working directory. Put all data in this folder.
+setwd("~/Desktop/variant_analysis")
+
+## For reproducibility and version control, record your R environment.
+writeLines(capture.output(sessionInfo()), "sessionInfo_27Nov20.txt")
+```
+
+# (0) Pre-processing
+
+## VCFTools 
+I used VCFTools for some filtering and data generation.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+## Some VCFTools analyses could not be run because polyploidy was indicated.
+
+## From the summary output of allele quality sum, it can be inferred that this dataset was pre-filtered from 30-70 beforehand.
+
+### Recommended filtering parameters
+## Quality filtering:  anything under Q20 or 99% accuracy
+## MAF filter: 0.05 - 0.10 recommended cut-off
+## Minimum depth filter: Ensure high quality calls
+## Maximum depth filter: Remove false positives caused by multiple mapping
+## Missing data: >25% missing data should be dropped
+```
+
+## Annovar Perl 
+I used bash and perl scripts for some filtering and data generation. I embedded the script below.
+```{bash}
+#sh -x "/Users/cmay/Desktop/variant_analysis/variant_annotation.sh"
+
+##########################################################################
+# variant_annotation.sh bash script below
+##########################################################################
+
+#export vcftools=/Users/cmay/bioinformatics/software/vcftools581c231
+#export PERL5LIB=/usr/local/Cellar/perl/5.30.2_1/bin
+
+## Annovar Perl scripts
+## Use the table_annovar.pl script to generate annotated tsv file from the VCF file.
+## https://annovar.openbioinformatics.org/en/latest/user-guide/startup/
+#
+#annotate_variation.pl -buildver hg19 -downdb -webfrom annovar refGene   humandb/
+#annotate_variation.pl -buildver hg19 -downdb cytoBand humandb/
+#annotate_variation.pl -buildver hg19 -downdb -webfrom annovar exac03    humandb/ 
+#annotate_variation.pl -buildver hg19 -downdb -webfrom annovar avsnp147  humandb/ 
+#annotate_variation.pl -buildver hg19 -downdb -webfrom annovar dbnsfp30a humandb/
+#table_annovar.pl Challenge_data1.vcf  humandb/ -buildver hg19  -out myanno -remove    \
+#                 -operation gx,r,f,f,f  -nastring . -xref example/gene_xref.txt       \
+#                 -protocol refGene,cytoBand,exac03,avsnp147,dbnsfp30a -csvout -polish \
+#                  
+#
+#table_annovar.pl /Users/cmay/Desktop/variant_analysis/Challenge_data1.vcf           \
+#-buildver hg19 -out myanno_data1  -remove -operation g,r,f,f,f   humandb/           \
+#-protocol refGene,cytoBand,exac03,avsnp147,dbnsfp30a -nastring . -vcfinput -polish  \
+
+### Create a random sample to generate stats from 
+## Set variables for vcfrandomsample
+#vcfrandomsample="/Users/cmay/bioinformatics/software/vcflib/bin/vcfrandomsample"
+#export PATH=$PATH:/Users/cmay/bioinformatics/software/vcflib/bin/vcfrandomsample
+
+#cd /Users/cmay/Desktop/variant_analysis
+
+## Make a bed file from the vcf file
+#vcf2bed  --keep-header --do-not-sort < Challenge_data1.vcf > Challenge_data1.bed
+#sort-bed --tmpdir tmp Challenge_data1.bed > Challenge_data1.sorted.bed
+#bedtobam bedtobam -i Challenge_data1.sorted.bed  -g hg19.fa  > Challenge_data1.bam
+
+## Generate general statistics
+#bcftools view Challenge_data1.vcf  | wc -l
+
+## Filter by MAF < 0.10
+# vcftools --gzvcf Challenge_data1.vcf.gz --maf 0.10 --indv normal --out data1_norm.filt
+# vcftools --gzvcf Challenge_data1.vcf.gz --maf 0.10 --indv vaf5   --out data1_vaf.filt
+
+## Create a subsample dataset
+#bcftools view Challenge_data1.vcf | $vcfrandomsample -r 0.3 > data1_subset.vcf
+
+## Compress vcf
+#bgzip data1_subset.vcf
+# bgzip data1_norm.filt
+# bgzip data1_vaf5.filt
+
+## Index vcf
+#bcftools index data1_subset.vcf.gz
+# bcftools index data1_norm_filt.vcf.gz
+# bcftools index data1_norm_vaf5.vcf.gz
+
+## Calculate allele frequency
+#vcftools --gzvcf data1_subset.vcf.gz  --freq2 --out data1_subset_freq.vcf      --max-alleles 2
+# vcftools --gzvcf data1_norm_filt.vcf.gz --freq2 --out data1_norm_filt_freq.vcf   --max-alleles 2
+# vcftools --gzvcf data1_vaf5_filt.vcf.gz --freq2 --out data1_vaf5_filt_freq.vcf   --max-alleles 2
+
+## Calculate mean depth per individual
+#vcftools --gzvcf data1_subset.vcf.gz  --depth --out data1_subset_depth.vcf 
+# vcftools --vcf data1_norm_filt.vcf   --depth --indv normal --out data1_norm_filt_depth
+# vcftools --vcf data1_vaf5_filt.vcf   --depth --indv vaf5   --out data1_vaf5_filt_depth
+
+## Calculate per site SNP quality  
+#vcftools --gzvcf data1_subset.vcf.gz      --site-quality --minGQ 20 --out data1_subset_quality
+```
+
+# (1) Install AnnovarR
+Install the Annotation databases. Documentation found at https://github.com/clindet/anor.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show', rows.print=10}
+# Set needed directory
+annovar.dir  <- "/Users/cmay/Desktop/variant_analysis/annovar"
+db.dir       <- "/Users/cmay/Desktop/variant_analysis/humandb"
+vcfanno.dir  <- "/Users/cmay/Desktop/variant_analysis/vcfanno"
+
+# Install annovarR and vcfanno
+library(BioInstaller)
+install.bioinfo('annovar', annovar.dir)
+install.bioinfo('vcfanno', vcfanno.dir)
+
+## Get all annovarR supported annotation name
+# get.annotation.names()
+# db_annovar_avsnp_sqlite    <- get.download.name('avsnp147')
+# db_annovar_exac03_sqlite   <- get.download.name('exac03')
+
+# Download databases
+download.database("db_annovar_refgene", db.dir = db.dir, buildver = "hg19", verbose = T)
+download.database("db_ucsc_cytoband",   db.dir = db.dir, buildver = "hg19", verbose = F)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+## I encountered version issues with annovarR, so I utilized perl scripts instead to generate the myanno analysis file.
+
+# All anor supported big annotation database required SQLite format
+# download.database(db_annovar_avsnp_sqlite,  db.dir = db.dir, 
+# buildver = "hg19", verbose = TRUE)
+# download.database(db_annovar_exac03_sqlite, db.dir = db.dir, 
+# buildver = "hg19", verbose = TRUE)
+# download.database(download.name = db_annovar_avsnp_sqlite,  
+#  version  = "avsnp147", buildver = "hg19", db.dir = db.dir)
+# download.database(download.name = db_annovar_exac03_sqlite, 
+# version  = "exac03",   buildver = "hg19", db.dir = db.dir)
+
+# Manually load databases from annovarR perl scripts
+# db_annovar_avsnp147  <- read.delim("humandb/hg19_avsnp147.txt", sep = "\t", header = F)
+# db_annovar_exac03    <- read.delim("humandb/hg19_exac03.txt",   sep = "\t", header = F)
+# 
+# chr          <- c("chr1", "chr2", "chr1")
+# start        <- c("10020", "10020", "10020")
+# end          <- c("10020", "10020", "10020")
+# ref          <- c("A", "A", "A")
+# alt          <- c("-", "-", "-")
+# db.dir <- tempdir()
+# dat          <- data.table(chr = chr, start = start, end = end, ref = ref, alt = alt)
+# x            <- annotation(dat = dat, anno.name = "avsnp147", db.dir = db.dir)
+# 
+# # Annotate using multiple database
+# x <- annotation.merge(dat = dat, anno.names = c("exac03", "avsnp147"), db.dir = db.dir)
+```
+
+# (2) Data Import
+
+## Import the Challenge data
+Import the VCF file into R. Requires a vcf file. A reference fasta file and an annotation file are suggested.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+## browseVignettes('vcfR') 
+## citation("vcfR")
+
+## Load the VCF v4.1 file. 
+## Generated with freeBayes from Tempus Labs
+hum_vcf    <- read.delim("Challenge_data1.vcf", sep = "\t", header = F, comment.char = "#")
+
+header    <- c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO","FORMAT","normal","vaf5")
+header    -> colnames(hum_vcf)
+
+head(hum_vcf)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+## Save the data file
+write.csv(hum_vcf, file = "Data1_VCF.csv")
+```
+
+## Split Samples
+Split files to parse INFO and FORMAT fields into columns
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+hum_vcf_split_info   <- read.vcf("Challenge_data1.vcf", split.samples = FALSE, 
+                                split.info = TRUE, nrows = -1, verbose = TRUE)
+hum_vcf_split_info2  <- as.data.frame(hum_vcf_split_info[["vcf"]])
+hum_vcf_subset       <- read_delim("data1_subset_quality.lqual",  delim = "\t", 
+                                   col_names = c("chr", "pos", "qual"), skip = 1)
+head(hum_vcf_split_info2)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+## See the results folder for the split info spreadsheet
+write.csv(hum_vcf_split_info2, file = "Data1_VCF_split.csv")
+```
+
+
+# (3) Quality Control
+
+## Evaulate per site SNP quality in subsample
+After sub-sampling and filtering reads (Q>20), retained 2052 out of 6977 sites.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show', cols.print=3, rows.print=8}
+## Used vcftools to calculate site quality (.lqual file)
+
+## QA Alternate allele quality sum in phred
+## QR Reference allele quality sum in phred
+# MQM Mean mapping quality of observed alternate alleles
+# MQRM Mean mapping quality of observed reference alleles 
+
+subset_var_qual  <- readr::read_delim("data1_subset_quality.lqual", 
+                    delim = "\t", col_names = c("chr", "pos", "qual"), skip = 1)
+# dbsnp     <- readr::read_delim("dbsnp132_20101103.quality.lqual", 
+#                     delim = "\t", col_names = c("chr", "pos", "qual"), skip = 1)
+
+#dim(subset_var_qual)
+head(subset_var_qual)
+```
+
+## Quality Plots
+Freebayes default for variant calling is Phred-encoded. But the quality scores in the Challenge_data1.vcf file has scores that range from 0 - 725,998.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show', fig.keep='none'}
+# summary(allele_qual$MQM)
+# summary(allele_qual$QA)
+# summary(allele_qual$QR)
+
+#colnames(hum_vcf_split_info2)
+
+allele_qual       <- hum_vcf_split_info2[,c(18,19,45,46)]
+allele_qual$MQM   <- as.numeric(allele_qual$MQM)
+allele_qual$MQMR  <- as.numeric(allele_qual$MQMR)
+
+plot_qual <- ggplot(hum_vcf_split_info2, aes(QUAL)) + theme_light() +
+                    geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3) + 
+                    theme(plot.title = element_text(hjust = 0.5, size=10)) +
+                    ggtitle("Mean mapping quality of Alternate alleles \n (Kernal Density Plot)") + 
+                    ylab("Distriubtion Density") + xlab("QUAL") 
+plot_mqm <- ggplot(allele_qual, aes(MQM)) + theme_light() +
+                    geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3) + 
+                    theme(plot.title = element_text(hjust = 0.5, size=10)) +
+                    ggtitle("Quality Distribution \n (Kernal Density Plot)") + 
+                    ylab("Distriubtion Density") + xlab("MQM") + 
+                    scale_x_continuous(limits=c(30,72))
+
+#summary(hum_vcf$qual)
+head(hum_vcf_split_info2)
+head(allele_qual)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show', fig.keep='all'}
+qual_plot  <- ggarrange(plot_mqm, plot_qual, ncol = 2, nrow = 1) 
+qual_plot
+
+ggsave("Plot_qual.tiff", plot = qual_plot, device = "tiff", scale = 1.5, 
+       dpi = 300, path ="results/", width = 7, height = 5, units = "in")
+```
+
+# (4) Variant Annotation
+Annotate type of variation and effect. 
+
+## Load the annotated data
+Read in data generated from the Annovar perl scripts.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+data1  <- read.csv("annovar/annovar/myanno_data1.hg19_multianno.csv", sep = ",")
+
+head(data1)
+```
+
+## Type of Variant
+(substitution, insertion, CNV)
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+## Uncomment the line below to get the column name for each factor of interest 
+## (i.e. ExonicFunc.refGene, ExonicFunc.refGene, Func.refGene)
+#colnames(data1)
+data1$ExonicFunc.refGene
+## Substitution, i.e. column "ExonicFunc.refGene"
+data1_substitution   <- data1  %>% dplyr::filter(ExonicFunc.refGene  == "nonframeshift substitution" | 
+                                                 ExonicFunc.refGene  == "frameshift substitution") 
+data1_substitution   <- data1_substitution[,c(7,20,9,1:5)]
+
+#dim(data1_substitution)     # Check the dimension of the matrix
+head(data1_substitution)
+
+## Insertion, i.e. column "ExonicFunc.refGene"
+data1_insertion      <- data1  %>% dplyr::filter(ExonicFunc.refGene  == "nonframeshift insertion" | 
+                                                 ExonicFunc.refGene  == "frameshift insertion")
+data1_insertion      <- data1_insertion[,c(7,20,9,1:5)]
+
+#dim(data1_insertion)     # Check the dimension of the matrix
+head(data1_insertion)
+```
+
+### CNV
+Copy Number Variant data from dbVar. References at: https://www.ncbi.nlm.nih.gov/dbvar/studies/nstd151/download/?type=i.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+dbVarCNV         <- read.csv("annovar/supporting_variants_for_nstd151.csv", sep = ",")
+#colnames(dbVarCNV)
+dbVarCNV         <- dbVarCNV[,c(2,4,14,17,18)]
+head(dbVarCNV)
+
+data_for_cnv     <- data1[,c(1:7,20)]
+
+## Merge myanno data and the CNV data
+dbVarCNV$Start   <- dbVarCNV$Inner.Start
+dbVarCNV$End     <- dbVarCNV$Inner.End
+data1_CNV_merge  <- inner_join(data_for_cnv, dbVarCNV, by= c("Start")) 
+
+## Values for positions do not match between CNV and myanno data file.
+#colnames(data1_CNV_merge)
+data1_CNV_merge    <- data1_CNV_merge[,c(7,8,9,10,1:5)]
+data1_CNV_merge    <- data1_CNV_merge  %>% dplyr::filter(avsnp147    != ".")  
+#length(data1_CNV_merge$Variant.Call.type)
+
+head(data1_CNV_merge)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+print("There are  30 substiutions annotated.")
+print("There are 137 insertions annotated.")
+print("There are 7 CNVS annotated.")
+
+## See the results folder for the variant type spreadsheets
+write.csv(data1_substitution, file="results/VarType_substitution.csv", 
+          sep=",", quote=F, col.names=NA)
+write.csv(data1_insertion,    file="results/VarType_insertion.csv",    
+          sep=",", quote=F, col.names=NA)
+write.csv(data1_CNV_merge,    file="results/VarType_CNV.csv",
+        sep=",", quote=F, col.names=NA)
+```
+
+
+## Type of Variant Effect
+(missense, silent, intergenic, etc.) Used the columns ExonicFunc.refGene, ExonicFunc.refGene, Func.refGene to get data. 
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+## Uncomment the line below to get the column name for each factor of interest 
+#colnames(data1)
+
+## Missense or Non-synonymous mutation, i.e. column "ExonicFunc.refGene"
+data1_missense          <- data1  %>% dplyr::filter(ExonicFunc.refGene  == "nonsynonymous SNV")
+data1_missense          <- data1_missense[,c(7,20,9,1:5)]
+#dim(data1_missense)    # Check the dimension of the matrix
+head(data1_missense)
+
+## Silent or Synonymous mutation, i.e. column "ExonicFunc.refGene"
+data1_silent            <- data1  %>% dplyr::filter(ExonicFunc.refGene  == "synonymous SNV")
+data1_silent            <- data1_silent[,c(7,20,9,1:5)]
+#dim(data1_silent)      # Check the dimension of the matrix       
+head(data1_silent)
+
+## Intergenic or outside of gene mutation, i.e. column "Func.refGene" 
+data1_intergenic        <- data1  %>% dplyr::filter(Func.refGene  == "intergenic")
+data1_intergenic        <- data1_intergenic[,c(7,20,6,1:5)]
+#dim(data1_intergenic)  # Check the dimension of the matrix 
+head(data1_intergenic)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+print("There are 1156 missense mutations annotated.")
+print("There are 1409 silent mutations annotated.")
+print("There are 346 intergenic mutations annotated.")
+
+## See the results folder for the variant effects spreadsheets
+write.csv(data1_missense,   file="results/VarFx_missense.csv",   
+          sep=",", quote=F, col.names=NA)
+write.csv(data1_silent,     file="results/VarFx_silent.csv",     
+          sep=",", quote=F, col.names=NA)
+write.csv(data1_intergenic, file="results/VarFx_intergenic.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+# (5) Rank Variants
+
+## SIFT Rank 
+Variants ranked by most deleterious (SIFT score = 0.0 - 0.05). SIFT Reference is at http://sift.jcvi.org. Additional score explanations are at https://brb.nci.nih.gov/seqtools/colexpanno.html#dbnsfp.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+## Find which column the SIFT score is in
+#colnames(data1)
+data1$SIFT_score  <- as.numeric(data1$SIFT_score)
+
+# Remove empty rows
+data1_SIFT        <- data1       %>% dplyr::filter(SIFT_score  != ".")   
+data1_SIFT        <- data1_SIFT  %>% dplyr::filter(avsnp147    != ".")  
+
+# Filter for deleterious AA changes
+data1_SIFT        <- data1_SIFT  %>% dplyr::filter(SIFT_pred   == "D") 
+
+# Filter out values above 0.05
+data1_SIFT        <- data1_SIFT  %>% dplyr::filter(SIFT_score  < 0.05)   
+data1_SIFT        <- data1_SIFT[,c(7,20,21,22,9,1:5,27,28)]   # Re-order columns
+
+# Rank from most deleterious to least
+data1_SIFT        <- data1_SIFT[order(data1_SIFT$SIFT_score, decreasing = FALSE),] 
+```
+
+## Find the most deleterious variants
+SIFT score of 0.0 - 0.05 are considered the most deleterious.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+#length(data1_SIFT$SIFT_score)      # Find the lenth of the variant list  
+# Find out how many variants have a score of 0.
+data1_SIFT_TOP   <- data1_SIFT  %>% dplyr::filter(SIFT_score  == 0) 
+#length(data1_SIFT_TOP$SIFT_score)  # Find the lenth of the variant list  
+
+head(data1_SIFT_TOP)   # Check the matrix
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+print("177 of the variants have the most deleterious SIFT scores.")
+print("There are 24 variants that are tied for the lowest SIFT score.")
+
+## See the results folder for the deleterious variants spreadsheet
+write.csv(data1_SIFT_TOP, file="results/Deleterious_SIFT.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+## Polyphen Rank 
+Variants ranked by most deleterious (Polyphen score = 0.95 - 1.0). Polyphen References are at http://genetics.bwh.harvard.edu/pph2/. HumDiv, was compiled from all damaging alleles with known effects on the molecular function causing human Mendelian diseases and utilizes the UniProtKB database. HVAR (based on HumVar) and HDIV (based on HumDiv) are highly colinear, with 0.946 correlation (Dong et al. (2015). Human molecular genetics). I ran the analysis with both and found all variants listed in HVAR were redundant with HDIV, thus i just used the HDIV scores below.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+## Find which column the HDIV score is in
+#colnames(data1)
+
+data1$Polyphen2_HDIV_score  <- as.numeric(data1$Polyphen2_HDIV_score)
+
+# Remove empty rows
+data1_HDIV  <- data1       %>% dplyr::filter(Polyphen2_HDIV_score  != ".")   
+data1_HDIV  <- data1_HDIV  %>% dplyr::filter(avsnp147  != ".")     
+
+# Filter for deleterious AA changes
+data1_HDIV  <- data1_HDIV  %>% dplyr::filter(SIFT_pred   == "D")         
+
+# Filter out values above 0.95
+data1_HDIV  <- data1_HDIV  %>% dplyr::filter(Polyphen2_HDIV_score  > 0.957)  
+data1_HDIV  <- data1_HDIV[,c(7,20,23,24,9,1:5,27,28)]   # Re-order columns
+
+# Rank from most deleterious to least
+data1_HDIV  <- data1_HDIV[order(data1_HDIV$Polyphen2_HDIV_score, decreasing = T),] 
+```
+
+Polyphen HDIV scores of 0.0975 - 1.0 are considered the most deleterious.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+#dim(data1_HDIV)     # Check the dimension of the matrix
+
+## Find the most deleterious variants
+# Find out how many variants have a score of 1.
+data1_HDIV  <- data1_HDIV  %>% dplyr::filter(Polyphen2_HDIV_score  == 1)  
+
+# Check the length
+#length(data1_HDIV$Polyphen2_HDIV_score)  
+head(data1_HDIV)   
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+print("92 of the variants have a Polyphen HDIV score of 0.95 - 1.0.")
+print("There are 48 variants have the most deleterious Polyphen HDIV scores.")
+
+## See the results folder for the deleterious variant spreadsheet
+write.csv(data1_HDIV, file="results/Deleterious_PolyphenHDIV.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+## Create a composite score 
+In order to determine the most deleteriousness variants, I utilized a variety of databases with different methods. SIFT was used to predict what amino acid changes were least tolerated. PolyPhen-HDIV uses Probablistic Classifier training sets to predict damaging polymorphisms. The Likelihood Ratio (LRT) scores and Mutation Taster (Bayesian classifier) scores did not help further filter down the most deleterious variants, since there were still 14 variants tied for most deleterious place. In order to determine the most deleterious variant, I included Functional analysis through hidden markov model HMM (FATHMM) scores for ranking.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+#colnames(data1)
+data1_HDIV       <- data1_HDIV[order(data1_HDIV$Gene.refGene, decreasing = F),] 
+data1_HDIV       <- data1_HDIV[,c(1,2,3)]
+data1_SIFT_TOP2  <- data1_SIFT_TOP[order(data1_SIFT_TOP$Gene.refGene, decreasing = F),] 
+data1_SIFT_TOP2  <- data1_SIFT_TOP2[,c(1,2,3)]
+
+## FATHMM - Functional analysis through hidden markov model HMM
+## Higher values are more deleterious
+data1_FATHMM   <- data1[,c(7,20,33,34)]
+
+# Remove empty rows
+data1_FATHMM   <- data1_FATHMM  %>%  dplyr::filter(avsnp147  != ".")     
+
+# Select disease causing polymorphisms only
+data1_FATHMM   <- data1_FATHMM  %>%  dplyr::filter(FATHMM_pred  ==  "D") 
+
+# Lower values are more deleterious
+data1_FATHMM   <- data1_FATHMM  %>%  dplyr::filter(FATHMM_score  >  -1 )   
+data1_FATHMM   <- data1_FATHMM[order(data1_FATHMM$Gene.refGene, decreasing = F),] 
+data1_FATHMM   <- data1_FATHMM[,c(1,2,3)]
+
+data1_POLYSIFT <- inner_join(data1_FATHMM, data1_SIFT_TOP2, 
+                             data1_HDIV, by= c("Gene.refGene","avsnp147"))  
+data1_POLYSIFT <- data1_POLYSIFT[order(data1_POLYSIFT$FATHMM_score, decreasing = T),] 
+data1_POLYSIFT <- data1_POLYSIFT[,c(1,2,3)]
+
+head(data1_POLYSIFT)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+print("The most deleterious variant predicted is KMT2C.")
+
+## See the results folder for the deleterious spreadsheet
+write.csv(data1_POLYSIFT, file="results/Deleterious_POLYSIFT.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+# (6) Depth 
+Calculate the depth of coverage at variant site using the INFO and FORMAT columns.
+
+## Parse INFO and FORMAT columns
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+## GT  - Genotype
+## GQ  - Genotype Quality
+## DP  - Total read depth at the locus
+## DPR - Number of observation for each allele
+## RO  - Reference allele observation count
+## QR  - Reference allele quality sum in phred
+## AO  - Alternate allele observation count
+## QA  - Sum of quality of the alternate observations
+
+## Split the format column
+hum_vcf_norm_df             <-  data.frame(matrix(NA, nrow = 6977, ncol = 8)) 
+hum_vcf_vaf5_df             <-  data.frame(matrix(NA, nrow = 6977, ncol = 8)) 
+colnames(hum_vcf_norm_df)   <-  c("GT","GQ","DP","DPR","RO","QR","AO","QA")
+colnames(hum_vcf_vaf5_df)   <-  c("GT","GQ","DP","DPR","RO","QR","AO","QA")
+position                    <-  hum_vcf_split_info2["POS"]
+
+## Split the format column for the "normal" sample
+   for(i in 1:6977) {
+hum_vcf_norm               <-  hum_vcf_split_info2[,c("normal")]
+hum_vcf_norm               <-  as.data.frame(hum_vcf_norm) 
+hum_vcf_norm_tmp           <-  strsplit(as.character(hum_vcf_norm[i,]),":") 
+hum_vcf_norm_tmp           <-  do.call(rbind.data.frame, hum_vcf_norm_tmp)
+hum_vcf_norm_df[i,]        <-  hum_vcf_norm_tmp[1,]   
+                    }
+hum_vcf_norm_df            <-  cbind(hum_vcf_norm_df, position)
+hum_vcf_norm_df            <-  hum_vcf_norm_df[,c(9,1:8)]
+
+## Split the format column for the "vaf5" sample
+   for(i in 1:6977) {
+hum_vcf_vaf5               <-  hum_vcf_split_info2[,c("vaf5")]
+hum_vcf_vaf5               <-  as.data.frame(hum_vcf_vaf5) 
+hum_vcf_vaf5_tmp           <-  strsplit(as.character(hum_vcf_vaf5[i,]),":") 
+hum_vcf_vaf5_tmp           <-  do.call(rbind.data.frame, hum_vcf_vaf5_tmp)
+hum_vcf_vaf5_df[i,]        <-  hum_vcf_vaf5_tmp[1,]   
+                    }
+hum_vcf_vaf5_df            <-  cbind(hum_vcf_vaf5_df, position)
+hum_vcf_vaf5_df            <-  hum_vcf_vaf5_df[,c(9,1:8)]
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+## See the results folder for the depth spreadsheet
+write.csv(hum_vcf_norm_df, file="results/Depth_locus_norm.csv", 
+          sep=",", quote=F, col.names=NA)
+write.csv(hum_vcf_vaf5_df, file="results/Depth_locus_vaf5.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+## Calculate the depth of coverage at variant site
+
+Split the INFO field into separate columns to extract the DP field or "Total read depth at the locus."
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show', fig.keep='none'}
+## hum_vcf_split_info2[,"DP"]  contains the "Total read depth at the locus"
+## hum_vcf_split_info2[,"POS"] contains the "Position" 
+#colnames(hum_vcf_split_info2)
+
+hum_vcf_norm_df2             <-  hum_vcf_norm_df[,c(1,4)]
+colnames(hum_vcf_norm_df2)   <-  c("Position","Depth")
+hum_vcf_vaf5_df2             <-  hum_vcf_vaf5_df[,c(1,4)]
+colnames(hum_vcf_vaf5_df2)   <-  c("Position","Depth")
+
+# For ggplot, make sure the variables are numeric
+class(hum_vcf_norm_df2$Depth) 
+hum_vcf_norm_df2$Depth       <-  as.numeric(hum_vcf_norm_df2$Depth)
+hum_vcf_vaf5_df2$Depth       <-  as.numeric(hum_vcf_vaf5_df2$Depth)
+
+norm_depth_plot   <-  ggplot(hum_vcf_norm_df2) + geom_point(aes(x = Position, y = Depth)) + 
+                      ylab("Depth") +  ggtitle("Depth at Locus Site (Normal Dataset)") +
+                      theme(axis.text.x = element_text(angle = 0, hjust = 1)) +  
+                      theme(plot.title = element_text(hjust = 0.5)) + 
+                      xlim(29350, 248856365) + ylim(12, 13380) + xlab("Position") +
+                      scale_x_continuous(labels = comma_format(big.mark = ".", decimal.mark = ","))
+vaf5_depth_plot   <-  ggplot(hum_vcf_vaf5_df2) + geom_point(aes(x = Position, y = Depth)) +  
+                      ylab("Depth") +  ggtitle("Depth at Locus Site (Vaf5 Dataset)") +
+                      theme(axis.text.x = element_text(angle = 0, hjust = 1)) +
+                      theme(plot.title = element_text(hjust = 0.5)) + 
+                      xlim(29350, 248856365) + ylim(1698, 26760) + xlab("Position") +
+                      scale_x_continuous(labels = comma_format(big.mark = ".", decimal.mark = ","))
+
+
+head(hum_vcf_norm_df2)
+head(hum_vcf_norm_df2)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show', fig.keep='all'}
+print("Depth at Locus Site (Normal Dataset)")
+print("Depth at Locus Site (Vaf5 Dataset)")
+
+plot_depth <- ggarrange(norm_depth_plot, vaf5_depth_plot, ncol = 1, nrow = 2) 
+plot_depth
+
+ggsave("Plot_depth.tiff", plot = plot_depth, device = "tiff", scale = 1.5, 
+       dpi = 300, path ="results/", width = 7, height = 5, units = "in")
+```
+
+
+# (7) Quantify reads
+Calculate the number of reads supporting the variant
+
+## Parse data from the DPR column
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+## Split the Format column to retreive DPR info
+## Number of observation for each allele ["DPR"]
+
+## Split the format column for the "normal" sample
+hum_vcf_norm_DPR_df            <-  data.frame(matrix(NA, nrow = 6977, ncol = 2))
+hum_vcf_vaf5_DPR_df            <-  data.frame(matrix(NA, nrow = 6977, ncol = 2))
+colnames(hum_vcf_norm_DPR_df)  <-  c("Allele1", "Allele2")
+colnames(hum_vcf_vaf5_DPR_df)  <-  c("Allele1", "Allele2")
+#position                      <-  hum_vcf_split_info2["POS"]
+hum_vcf_norm_df2               <-  hum_vcf_norm_df[,c(1,5)]
+hum_vcf_vaf5_df2               <-  hum_vcf_vaf5_df[,c(1,5)]
+
+## Split the DPR column for the "normal" sample
+   for(i in 1:6977)     {
+hum_vcf_norm_DPR2              <-  hum_vcf_norm_df2[,c("DPR")]
+hum_vcf_norm_DPR2              <-  as.data.frame(hum_vcf_norm_DPR2) 
+hum_vcf_norm_DPR_tmp           <-  strsplit(as.character(hum_vcf_norm_DPR2[i,]),",") 
+hum_vcf_norm_DPR_tmp           <-  do.call(rbind.data.frame, hum_vcf_norm_DPR_tmp)
+hum_vcf_norm_DPR_df[i,]        <-  hum_vcf_norm_DPR_tmp[1,]    
+                        }
+hum_vcf_norm_DPR_df            <-  cbind(hum_vcf_norm_DPR_df, position)
+hum_vcf_norm_DPR_df            <-  hum_vcf_norm_DPR_df[,c(3,1:2)]
+
+## Split the DPR column for the "normal" sample
+   for(i in 1:6977)     {
+hum_vcf_vaf5_DPR2              <-  hum_vcf_vaf5_df2[,c("DPR")]
+hum_vcf_vaf5_DPR2              <-  as.data.frame(hum_vcf_vaf5_DPR2) 
+hum_vcf_vaf5_DPR_tmp           <-  strsplit(as.character(hum_vcf_vaf5_DPR2[i,]),",") 
+hum_vcf_vaf5_DPR_tmp           <-  do.call(rbind.data.frame, hum_vcf_vaf5_DPR_tmp)
+hum_vcf_vaf5_DPR_df[i,]        <-  hum_vcf_vaf5_DPR_tmp[1,]    
+                        }
+hum_vcf_vaf5_DPR_df            <-  cbind(hum_vcf_vaf5_DPR_df, position)
+hum_vcf_vaf5_DPR_df            <-  hum_vcf_vaf5_DPR_df[,c(3,1:2)]
+
+head(hum_vcf_norm_DPR_df)
+head(hum_vcf_vaf5_DPR_df)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+print("Number of Observations per Allele (Normal Dataset)")
+print("Number of Observations per Allele (Vaf5 Dataset)")
+
+## See the results folder for the number of counts per allele spreadsheets
+write.csv(hum_vcf_norm_DPR_df, file="results/Number_per_allele_norm.csv", 
+          sep=",", quote=F, col.names=NA)
+write.csv(hum_vcf_vaf5_DPR_df, file="results/Number_per_allele_vaf5.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+# (8) Percent of variant reads
+
+## Calculate the percent of reads 
+Percent of alternate variant vs. reference reads is calculated by dividing the AO column with the RO column.
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+# RO -  "Reference allele observation count"
+# AO -  "Alternate allele observation count"
+
+#colnames(hum_vcf_norm_df)
+hum_vcf_PerVar     <-  hum_vcf_norm_df[,c(1,6,8)]
+
+hum_vcf_PerVar$RO  <-  as.numeric(hum_vcf_PerVar$RO)
+hum_vcf_PerVar$AO  <-  as.numeric(hum_vcf_PerVar$AO)
+
+for(i in 1:6977)   {      # Divide Alternate counts by Reference Counts
+hum_vcf_PerVar[i,"Ratio"] <-  (hum_vcf_PerVar[i,3] / hum_vcf_PerVar[i,2])
+                   }
+
+colnames(hum_vcf_PerVar)  <-  c("Position","Ref_Count","Alt_Count","Ratio_AR")
+
+# Change all Inf values to 0
+hum_vcf_PerVar$Ratio_AR[is.infinite(hum_vcf_PerVar$Ratio_AR)] <- 0       
+
+# Round ratio to 3 digits
+hum_vcf_PerVar$Ratio_AR   <- round(hum_vcf_PerVar$Ratio_AR, digits = 3)  
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+#summary(hum_vcf_PerVar$Position)
+# For ggplot, make sure the variables are numeric
+class(hum_vcf_PerVar$Ratio_AR) 
+hum_vcf_PerVar$Ratio_AR       <-  as.numeric(hum_vcf_PerVar$Ratio_AR)
+hum_vcf_PerVar$Ratio_AR       <-  as.numeric(hum_vcf_PerVar$Ratio_AR)
+
+PerVar_plot       <-  ggplot(hum_vcf_PerVar) + geom_point(aes(x = Position, y = Ratio_AR)) + 
+                      ylab("Ratio AO/RO") +  ggtitle("Ratio of Alternate to Reference Allele Counts \n") +
+                      theme(axis.text.x = element_text(angle = 0, hjust = 1)) +  
+                      theme(plot.title = element_text(hjust = 0.5)) + 
+                      xlim(29350, 248856365) + ylim(0, 4903) + xlab("Variant Position") +
+                      scale_x_continuous(labels = comma_format(big.mark = ".", decimal.mark = ","))
+PerVar_plot
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+head(hum_vcf_PerVar)
+
+ggsave("PerVar_plot", plot = PerVar_plot, device = "tiff", scale = 1.5, 
+       dpi = 300, path ="results/", width = 7, height = 5, units = "in")
+
+## See the results folder for the percent alternate to reference reads spreadsheet
+write.csv(hum_vcf_PerVar, file="results/PerVar_AltRef.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+
+# (9) Allele frequency of the Variant
+Utilizes ExAC API. References from the Exome Aggregation Consortium Data (ExAC) can be found at http://exac.hms.harvard.edu/.
+
+## Allele frequency
+xAC_ALL: All Individuals (60,706 samples)
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+#colnames(data1)
+data1_ExAC  <- data1[c(20,1,2,4:5,12:19)]
+#head(data1_ExAC)
+
+data1_ExAC_ALL  <- data1_ExAC[,c(1:5,6)]   # All Individuals
+data1_ExAC_AFR  <- data1_ExAC[,c(1:5,7)]   # African
+data1_ExAC_AMR  <- data1_ExAC[,c(1:5,8)]   # American
+data1_ExAC_EAS  <- data1_ExAC[,c(1:5,9)]   # Eastern Asian
+data1_ExAC_FIN  <- data1_ExAC[,c(1:5,10)]  # Finnish
+data1_ExAC_NFE  <- data1_ExAC[,c(1:5,11)]  # Non-Finnish European
+data1_ExAC_OTH  <- data1_ExAC[,c(1:5,12)]  # Other
+data1_ExAC_SAS  <- data1_ExAC[,c(1:5,13)]  # South Asian
+
+data1_ExAC_ALL  <- data1_ExAC_ALL  %>% dplyr::filter(ExAC_ALL  != ".") 
+data1_ExAC_AFR  <- data1_ExAC_AFR  %>% dplyr::filter(ExAC_AFR  != ".") 
+data1_ExAC_AMR  <- data1_ExAC_AMR  %>% dplyr::filter(ExAC_AMR  != ".") 
+data1_ExAC_EAS  <- data1_ExAC_EAS  %>% dplyr::filter(ExAC_EAS  != ".") 
+data1_ExAC_FIN  <- data1_ExAC_FIN  %>% dplyr::filter(ExAC_FIN  != ".") 
+data1_ExAC_NFE  <- data1_ExAC_NFE  %>% dplyr::filter(ExAC_NFE  != ".") 
+data1_ExAC_OTH  <- data1_ExAC_OTH  %>% dplyr::filter(ExAC_OTH  != ".") 
+data1_ExAC_SAS  <- data1_ExAC_SAS  %>% dplyr::filter(ExAC_SAS  != ".") 
+
+colnames(data1_ExAC_ALL) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqAll")
+colnames(data1_ExAC_AFR) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqAfrican")
+colnames(data1_ExAC_AMR) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqAmerican")
+colnames(data1_ExAC_EAS) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqEastAsian")
+colnames(data1_ExAC_FIN) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqFinnish")
+colnames(data1_ExAC_NFE) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqNonFinEuropean")
+colnames(data1_ExAC_OTH) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqOther")
+colnames(data1_ExAC_SAS) <- c("SNV","Chr","Position","Ref","Alt","AlleleFreqSouthAsian")
+
+## Pull the top most deleterious variants and compare between ExAC populations
+data1_ExAC_ALL_DEL  <- data1_ExAC_ALL %>% dplyr::filter(SNV == "rs773753315" | SNV == "rs30489"     |
+                                                        SNV == "rs28522267"  | SNV == "rs752908209" |
+                                                        SNV == "rs151218732" | SNV == "rs781810958" )
+data1_ExAC_AFR_DEL  <- data1_ExAC_AFR %>% dplyr::filter(SNV == "rs773753315" | SNV == "rs30489"     |
+                                                        SNV == "rs28522267"  | SNV == "rs752908209" |
+                                                        SNV == "rs151218732" | SNV == "rs781810958" )
+data1_ExAC_AMR_DEL  <- data1_ExAC_AMR %>% dplyr::filter(SNV == "rs773753315" | SNV == "rs30489"     |
+                                                        SNV == "rs28522267"  | SNV == "rs752908209" |
+                                                        SNV == "rs151218732" | SNV == "rs781810958" )
+
+Genes   <- c("WNT2B","TCF7","KMT2C","PAX9","CRLF2","ATRX")
+data1_ExAC_ALL_DEL  <- cbind(data1_ExAC_ALL_DEL, Genes)  
+data1_ExAC_AFR_DEL  <- cbind(data1_ExAC_AFR_DEL, Genes)  
+data1_ExAC_AMR_DEL  <- cbind(data1_ExAC_AMR_DEL, Genes)  
+
+data1_ExAC_ALL_DEL  <- data1_ExAC_ALL_DEL[,c(7,1,6,2:5)]
+data1_ExAC_AFR_DEL  <- data1_ExAC_AFR_DEL[,c(7,1,6,2:5)]
+data1_ExAC_AMR_DEL  <- data1_ExAC_AMR_DEL[,c(7,1,6,2:5)]
+
+#data1_ExAC_ALL_DEL_3way  <- cbind(data1_ExAC_ALL_DEL$AlleleFreqAll,data1_ExAC_AFR_DEL$AlleleFreqAfrican,data1_ExAC_AMR_DEL$AlleleFreqAmerican)
+
+data1_ExAC_ALL_DEL_3way  <- left_join(data1_ExAC_ALL_DEL, data1_ExAC_AMR_DEL,      by= c("Genes"))  
+data1_ExAC_ALL_DEL_3way  <- left_join(data1_ExAC_ALL_DEL_3way, data1_ExAC_AFR_DEL, by= c("Genes"))  
+#colnames(data1_ExAC_ALL_DEL_3way)
+data1_ExAC_ALL_DEL_3way  <-  data1_ExAC_ALL_DEL_3way[,c(3,9,15)]
+
+#Group   <- c("All","American","African")
+Genes    <- c("WNT2B","TCF7","KMT2C","PAX9","CRLF2","ATRX")
+#data1_ExAC_ALL_DEL_3wayt  <- t(data1_ExAC_ALL_DEL_3way)  # Transpose the data
+data1_ExAC_ALL_DEL_3wayt  <- cbind(data1_ExAC_ALL_DEL_3way, Genes) 
+#rownames(data1_ExAC_ALL_DEL_3wayt)  <-
+
+head(data1_ExAC_ALL_DEL_3wayt)
+data1_ExAC_ALL_DEL_3wayt  <- data1_ExAC_ALL_DEL_3wayt[,c(4,1:3)]
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='show'}
+#class(data1_ExAC_ALL$AlleleFreqAll)   # Check if plot variant is numeric
+#summary(data1_ExAC_ALL$AlleleFreqAll) # Find plot limits
+data1_ExAC_ALL$AlleleFreqAll <- as.numeric(data1_ExAC_ALL$AlleleFreqAll)
+#data1_ExAC_ALL$Genes         <- as.factor(data1_ExAC_ALL$Genes)
+class(data1_ExAC_ALL$AlleleFreqAll)
+
+hist(data1_ExAC_ALL$AlleleFreqAll, breaks = 80, main="ExAC Allele Frequency \n (All Individuals)")
+
+## See the results folder for the percent alternate to reference reads spreadsheet
+write.csv(data1_ExAC_ALL, file="results/ExAC_AlleleFreqAll.csv", 
+          sep=",", quote=F, col.names=NA)
+```
+
+## ExAC Allele Frequency
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='show'}
+data1_ExAC_ALL_DEL_3wayt                     <- as.data.frame(data1_ExAC_ALL_DEL_3wayt)
+data1_ExAC_ALL_DEL_3wayt$AlleleFreqAll       <- as.numeric(data1_ExAC_ALL_DEL_3wayt$AlleleFreqAll)
+data1_ExAC_ALL_DEL_3wayt$AlleleFreqAmerican  <- as.numeric(data1_ExAC_ALL_DEL_3wayt$AlleleFreqAmerican)
+data1_ExAC_ALL_DEL_3wayt$AlleleFreqAfrican   <- as.numeric(data1_ExAC_ALL_DEL_3wayt$AlleleFreqAfrican)
+
+pplot0 <- ggplot(data1_ExAC_ALL_DEL_3wayt, aes(factor(Genes), AlleleFreqAll)) +
+          geom_jitter(width = 0.065) +  ggtitle("ExAC Allele Frequency (All)") + 
+          xlab("") + ylab("Gene Allele Frequency") + guides(fill = FALSE) +
+          theme(plot.title = element_text(hjust = 0.5, size=11, face="bold")) + 
+          theme(axis.text=element_text(size=8, face="bold"), axis.title=element_text(size=10)) +
+          scale_y_continuous(limits = c(0, 0.3)) + ylim(0,0.3)
+pplot1 <- ggplot(data1_ExAC_ALL_DEL_3wayt, aes(factor(Genes), AlleleFreqAmerican)) +
+          geom_jitter(width = 0.065) +  ggtitle("ExAC Allele Frequency (American)") + 
+          xlab("") + ylab("Gene Allele Frequency") + guides(fill = FALSE) +
+          theme(plot.title = element_text(hjust = 0.5, size=11, face="bold")) + 
+          theme(axis.text=element_text(size=8, face="bold"), axis.title=element_text(size=10)) +
+          scale_y_continuous(limits = c(0, 0.3)) + ylim(0,0.3)
+pplot2 <- ggplot(data1_ExAC_ALL_DEL_3wayt, aes(factor(Genes), AlleleFreqAfrican)) +
+          geom_jitter(width = 0.065) +  ggtitle("ExAC Allele Frequency (American)") + 
+          xlab("") + ylab("Gene Allele Frequency") + guides(fill = FALSE) +
+          theme(plot.title = element_text(hjust = 0.5, size=11, face="bold")) + 
+          theme(axis.text=element_text(size=8, face="bold"), axis.title=element_text(size=10)) +
+          scale_y_continuous(limits = c(0, 0.3)) + ylim(0,0.3)
+
+head(data1_ExAC_ALL_DEL_3wayt)
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+ExAc_3way <- ggarrange(pplot0 + rremove("x.text"), pplot1 + rremove("x.text"), pplot2, ncol = 1, nrow = 3)
+ExAc_3way
+
+ggsave("ExAc_AlleleFreq_3way.tiff", plot = ExAc_3way, device = "tiff", scale = 1.5, 
+       dpi = 300, path ="results/", width = 7, height = 5, units = "in")
+```
+
+
+
+
+
